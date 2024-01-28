@@ -93,19 +93,28 @@ func GetDiagnostics(uri uri.URI) ([]lsp.Diagnostic, error) {
 	logger.Println(dir)
 	client := action.NewLint()
 
-	vals, err := loadValues(dir)
-	if err != nil {
-
-		logger.Println(errors.Wrap(err, "could not load values.yaml, trying to load values.yml instead"))
-
-		vals, err = loadValues(dir, "values.yml")
-		if err != nil {
-			logger.Println(errors.Wrap(err, "could not load values.yml, ignoring values"))
-		}
-
+	all_values := make(map[string]interface{})
+	value_files := []string{
+		chartutil.ValuesfileName,
+		"values.yml",
+		"values/common.yaml",
+		"values/common.yml",
 	}
 
-	result := client.Run([]string{dir}, vals)
+	for _, value_file := range value_files {
+		vals, err := loadValues(dir, value_file)
+
+		if err != nil {
+			logger.Println(errors.Wrap(err, fmt.Sprintf("Could not load %s", value_file)))
+			continue
+		}
+
+		all_values = chartutil.CoalesceTables(vals, all_values)
+		// For now break as those files should be mutually exclusive
+		break
+	}
+
+	result := client.Run([]string{dir}, all_values)
 	logger.Println("helm lint: result:", result.Messages)
 
 	for _, msg := range result.Messages {
