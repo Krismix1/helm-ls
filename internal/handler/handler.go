@@ -62,6 +62,8 @@ func (h *langHandler) handle(ctx context.Context, reply jsonrpc2.Replier, req js
 		return reply(ctx, nil, nil)
 	case lsp.MethodShutdown:
 		return h.handleShutdown(ctx, reply, req)
+	case lsp.MethodExit:
+		return h.handleExit(ctx, reply, req)
 	case lsp.MethodTextDocumentDidOpen:
 		return h.handleTextDocumentDidOpen(ctx, reply, req)
 	case lsp.MethodTextDocumentDidClose:
@@ -79,14 +81,21 @@ func (h *langHandler) handle(ctx context.Context, reply jsonrpc2.Replier, req js
 	case lsp.MethodWorkspaceDidChangeConfiguration:
 		return h.handleWorkspaceDidChangeConfiguration(ctx, reply, req)
 	default:
-		logger.Debug("Unsupported method", req.Method())
+		logger.Debug("Unsupported method ", req.Method())
 	}
 
 	return jsonrpc2.MethodNotFoundHandler(ctx, reply, req)
 }
 
-func (h *langHandler) handleShutdown(_ context.Context, _ jsonrpc2.Replier, _ jsonrpc2.Request) (err error) {
-	return h.connPool.Close()
+func (h *langHandler) handleShutdown(ctx context.Context, reply jsonrpc2.Replier, _ jsonrpc2.Request) (err error) {
+	return reply(ctx, nil, nil);
+}
+
+func (h *langHandler) handleExit(_ context.Context, _ jsonrpc2.Replier, _ jsonrpc2.Request) (err error) {
+	h.connPool.Close()
+	<-h.connPool.Done()
+
+	return nil
 }
 
 func (h *langHandler) handleTextDocumentDidOpen(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) (err error) {
