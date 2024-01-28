@@ -24,8 +24,8 @@ import (
 
 var logger = log.GetLogger()
 
-func NotifcationFromLint(ctx context.Context, conn jsonrpc2.Conn, doc *Document) (*jsonrpc2.Notification, error) {
-	diagnostics, err := GetDiagnostics(doc.URI)
+func NotifcationFromLint(ctx context.Context, valuesFiles []string, conn jsonrpc2.Conn, doc *Document) (*jsonrpc2.Notification, error) {
+	diagnostics, err := GetDiagnostics(doc.URI, valuesFiles)
 
 	if err != nil {
 		return nil, err
@@ -72,7 +72,7 @@ func loadValues(dir string, filename ...string) (map[string]interface{}, error) 
 
 // GetDiagnostics will run helm linter against the currect document URI
 // and converts the helm.support.Message to lsp.Diagnostics
-func GetDiagnostics(uri uri.URI) ([]lsp.Diagnostic, error) {
+func GetDiagnostics(uri uri.URI, extraValuesFiles []string) ([]lsp.Diagnostic, error) {
 
 	var (
 		filename    = uri.Filename()
@@ -93,28 +93,25 @@ func GetDiagnostics(uri uri.URI) ([]lsp.Diagnostic, error) {
 	logger.Println(dir)
 	client := action.NewLint()
 
-	all_values := make(map[string]interface{})
-	value_files := []string{
+	allValues := make(map[string]interface{})
+	valueFiles := []string{
 		chartutil.ValuesfileName,
 		"values.yml",
-		"values/common.yaml",
-		"values/common.yml",
 	}
+	valueFiles = append(valueFiles, extraValuesFiles...)
 
-	for _, value_file := range value_files {
-		vals, err := loadValues(dir, value_file)
+	for _, valueFile := range valueFiles {
+		vals, err := loadValues(dir, valueFile)
 
 		if err != nil {
-			logger.Println(errors.Wrap(err, fmt.Sprintf("Could not load %s", value_file)))
+			logger.Println(errors.Wrap(err, fmt.Sprintf("Could not load %s", valueFile)))
 			continue
 		}
 
-		all_values = chartutil.CoalesceTables(vals, all_values)
-		// For now break as those files should be mutually exclusive
-		break
+		allValues = chartutil.CoalesceTables(vals, allValues)
 	}
 
-	result := client.Run([]string{dir}, all_values)
+	result := client.Run([]string{dir}, allValues)
 	logger.Println("helm lint: result:", result.Messages)
 
 	for _, msg := range result.Messages {

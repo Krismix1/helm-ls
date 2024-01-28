@@ -3,6 +3,7 @@ package util
 type HelmlsConfiguration struct {
 	YamllsConfiguration YamllsConfiguration `json:"yamlls,omitempty"`
 	LogLevel            string              `json:"logLevel,omitempty"`
+	ValuesFiles         []string            `json:"valuesFiles,omitempty"`
 }
 
 type YamllsConfiguration struct {
@@ -18,7 +19,8 @@ type YamllsConfiguration struct {
 }
 
 var DefaultConfig = HelmlsConfiguration{
-	LogLevel: "info",
+	LogLevel:    "info",
+	ValuesFiles: []string{},
 	YamllsConfiguration: YamllsConfiguration{
 		Enabled:                 true,
 		Path:                    "yaml-language-server",
