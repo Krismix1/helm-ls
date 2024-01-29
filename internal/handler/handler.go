@@ -93,8 +93,6 @@ func (h *langHandler) handleShutdown(ctx context.Context, reply jsonrpc2.Replier
 
 func (h *langHandler) handleExit(_ context.Context, _ jsonrpc2.Replier, _ jsonrpc2.Request) (err error) {
 	h.connPool.Close()
-	<-h.connPool.Done()
-
 	return nil
 }
 
