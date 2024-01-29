@@ -1,3 +1,9 @@
+```sh
+make build-release
+rm ~/.local/share/nvim/mason/bin/helm_ls
+ln -s ~/projects/helm-ls/dist/linux-amd64_linux_amd64_v1/helm-ls ~/.local/share/nvim/mason/bin/helm_ls
+```
+
 [![Lint](https://github.com/mrjosh/helm-ls/actions/workflows/lint.yml/badge.svg)](https://github.com/mrjosh/helm-ls/actions/workflows/lint.yml)
 [![Tests](https://github.com/mrjosh/helm-ls/actions/workflows/tests.yml/badge.svg)](https://github.com/mrjosh/helm-ls/actions/workflows/tests.yml)
 [![Release](https://github.com/mrjosh/helm-ls/actions/workflows/artifacts.yml/badge.svg)](https://github.com/mrjosh/helm-ls/releases/latest)
