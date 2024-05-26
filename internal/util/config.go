@@ -4,7 +4,6 @@ type HelmlsConfiguration struct {
 	YamllsConfiguration YamllsConfiguration `json:"yamlls,omitempty"`
 	ValuesFilesConfig   ValuesFilesConfig   `json:"valuesFiles,omitempty"`
 	LogLevel            string              `json:"logLevel,omitempty"`
-	ValuesFiles         []string            `json:"valuesFiles,omitempty"`
 }
 
 type ValuesFilesConfig struct {
