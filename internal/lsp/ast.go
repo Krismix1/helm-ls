@@ -2,17 +2,16 @@ package lsp
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/mrjosh/helm-ls/internal/tree-sitter/gotemplate"
 	sitter "github.com/smacker/go-tree-sitter"
 	lsp "go.lsp.dev/protocol"
 )
 
-func ParseAst(content string) *sitter.Tree {
+func ParseAst(oldTree *sitter.Tree, content string) *sitter.Tree {
 	parser := sitter.NewParser()
 	parser.SetLanguage(gotemplate.GetLanguage())
-	tree, _ := parser.ParseCtx(context.Background(), nil, []byte(content))
+	tree, _ := parser.ParseCtx(context.Background(), oldTree, []byte(content))
 	return tree
 }
 
@@ -21,22 +20,44 @@ func NodeAtPosition(tree *sitter.Tree, position lsp.Position) *sitter.Node {
 	return tree.RootNode().NamedDescendantForPointRange(start, start)
 }
 
-func FindDirectChildNodeByStart(currentNode *sitter.Node, pointToLookUp sitter.Point) *sitter.Node {
-	for i := 0; i < int(currentNode.ChildCount()); i++ {
-		child := currentNode.Child(i)
-		if child.StartPoint().Column == pointToLookUp.Column && child.StartPoint().Row == pointToLookUp.Row {
-			return child
-		}
+func NestedNodeAtPositionForCompletion(tree *sitter.Tree, position lsp.Position) *sitter.Node {
+	currentNode := NodeAtPosition(tree, position)
+	pointToLoopUp := sitter.Point{
+		Row:    position.Line,
+		Column: position.Character,
 	}
-	return currentNode
+	return FindRelevantChildNodeCompletion(currentNode, pointToLoopUp)
 }
 
 func FindRelevantChildNode(currentNode *sitter.Node, pointToLookUp sitter.Point) *sitter.Node {
 	for i := 0; i < int(currentNode.ChildCount()); i++ {
 		child := currentNode.Child(i)
+		if child == nil {
+			continue
+		}
 		if isPointLargerOrEq(pointToLookUp, child.StartPoint()) && isPointLargerOrEq(child.EndPoint(), pointToLookUp) {
 			return FindRelevantChildNode(child, pointToLookUp)
 		}
+	}
+	return currentNode
+}
+
+func FindRelevantChildNodeCompletion(currentNode *sitter.Node, pointToLookUp sitter.Point) *sitter.Node {
+	childCount := int(currentNode.ChildCount())
+	for i := childCount - 1; i >= 0; i-- {
+		child := currentNode.Child(i)
+		if child == nil {
+			continue
+		}
+		if isPointLargerOrEq(pointToLookUp, child.StartPoint()) && isPointLargerOrEq(child.EndPoint(), pointToLookUp) {
+			return FindRelevantChildNodeCompletion(child, pointToLookUp)
+		}
+	}
+	if currentNode.Type() == " " {
+		return FindRelevantChildNodeCompletion(currentNode.Parent(), sitter.Point{
+			Row:    pointToLookUp.Row,
+			Column: pointToLookUp.Column - 1,
+		})
 	}
 	return currentNode
 }
@@ -48,65 +69,8 @@ func isPointLargerOrEq(a sitter.Point, b sitter.Point) bool {
 	return a.Row > b.Row
 }
 
-func GetFieldIdentifierPath(node *sitter.Node, doc *Document) (path string) {
-	path = buildFieldIdentifierPath(node, doc)
-	logger.Debug(fmt.Sprintf("buildFieldIdentifierPath: %s for node %s with parent %s", path, node, node.Parent()))
-
-	return path
-}
-
-func buildFieldIdentifierPath(node *sitter.Node, doc *Document) string {
-	prepend := node.PrevNamedSibling()
-
-	currentPath := node.Content([]byte(doc.Content))
-	if prepend != nil {
-		nodeContent := node.Content([]byte(doc.Content))
-		if nodeContent == "." {
-			nodeContent = ""
-		}
-		currentPath = prepend.Content([]byte(doc.Content)) + "." + nodeContent
-		logger.Println("Adding currentpath", currentPath)
-	} else if node.Parent() != nil && node.Parent().Type() == gotemplate.NodeTypeError {
-		return buildFieldIdentifierPath(node.Parent(), doc)
-	}
-
-	if currentPath[0:1] == "$" {
-		return currentPath
-	}
-
-	if currentPath[0:1] != "." {
-		currentPath = "." + currentPath
-	}
-
-	return TraverseIdentifierPathUp(node, doc) + currentPath
-}
-
-func TraverseIdentifierPathUp(node *sitter.Node, doc *Document) string {
-	parent := node.Parent()
-
-	if parent == nil {
-		return ""
-	}
-
-	switch parent.Type() {
-	case "range_action":
-		if node.PrevNamedSibling() == nil {
-			return TraverseIdentifierPathUp(parent, doc)
-		}
-		logger.Debug("Range action found")
-		return TraverseIdentifierPathUp(parent, doc) + parent.NamedChild(0).Content([]byte(doc.Content)) + "[0]"
-	case "with_action":
-		if node.PrevNamedSibling() == nil {
-			return TraverseIdentifierPathUp(parent, doc)
-		}
-		logger.Debug("With action found")
-		return TraverseIdentifierPathUp(parent, doc) + parent.NamedChild(0).Content([]byte(doc.Content))
-	}
-	return TraverseIdentifierPathUp(parent, doc)
-}
-
 func (d *Document) ApplyChangesToAst(newContent string) {
-	d.Ast = ParseAst(newContent)
+	d.Ast = ParseAst(nil, newContent)
 }
 
 func GetLspRangeForNode(node *sitter.Node) lsp.Range {

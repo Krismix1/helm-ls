@@ -2,64 +2,63 @@ package yamlls
 
 import (
 	"context"
-	"reflect"
 
-	"github.com/mrjosh/helm-ls/internal/util"
+	"github.com/mrjosh/helm-ls/internal/protocol"
 	lsp "go.lsp.dev/protocol"
 )
 
 // Calls the Hover method of yamlls to get a fitting hover response
 // If hover returns nothing appropriate, calls yamlls for completions
+//
+// Yamlls can not handle hover if the schema validation returns error,
+// thats why we fall back to calling completion
 func (yamllsConnector Connector) CallHover(ctx context.Context, params lsp.HoverParams, word string) (*lsp.Hover, error) {
-	if yamllsConnector.Conn == nil {
+	if yamllsConnector.server == nil {
 		return &lsp.Hover{}, nil
 	}
 
-	hoverResponse, err := (yamllsConnector).getHoverFromHover(ctx, params)
+	hoverResponse, err := yamllsConnector.server.Hover(ctx, &params)
 	if err != nil {
 		return hoverResponse, err
 	}
 
-	if hoverResponse.Contents.Value != "" {
+	if hoverResponse != nil && hoverResponse.Contents.Value != "" {
 		return hoverResponse, nil
 	}
 	return (yamllsConnector).getHoverFromCompletion(ctx, params, word)
 }
 
-func (yamllsConnector Connector) getHoverFromHover(ctx context.Context, params lsp.HoverParams) (*lsp.Hover, error) {
-
-	var hoverResponse = reflect.New(reflect.TypeOf(lsp.Hover{})).Interface()
-	_, err := (*yamllsConnector.Conn).Call(ctx, lsp.MethodTextDocumentHover, params, hoverResponse)
-	if err != nil {
-		logger.Error("Error calling yamlls for hover", err)
-		return &lsp.Hover{}, err
-	}
-	logger.Debug("Got hover from yamlls", hoverResponse.(*lsp.Hover).Contents.Value)
-	return hoverResponse.(*lsp.Hover), nil
-}
-
-func (yamllsConnector Connector) getHoverFromCompletion(ctx context.Context, params lsp.HoverParams, word string) (*lsp.Hover, error) {
+func (yamllsConnector Connector) getHoverFromCompletion(ctx context.Context, params lsp.HoverParams, word string) (response *lsp.Hover, err error) {
 	var (
-		err                error
-		documentation      string
-		completionResponse = reflect.New(reflect.TypeOf(lsp.CompletionList{})).Interface()
-		completionParams   = lsp.CompletionParams{
+		resultRange      lsp.Range
+		documentation    string
+		completionParams = lsp.CompletionParams{
 			TextDocumentPositionParams: params.TextDocumentPositionParams,
 		}
 	)
-	_, err = (*yamllsConnector.Conn).Call(ctx, lsp.MethodTextDocumentCompletion, completionParams, completionResponse)
+
+	word = removeTrailingColon(word)
+
+	completionList, err := yamllsConnector.server.Completion(ctx, &completionParams)
 	if err != nil {
 		logger.Error("Error calling yamlls for Completion", err)
 		return &lsp.Hover{}, err
 	}
 
-	for _, completionItem := range completionResponse.(*lsp.CompletionList).Items {
+	for _, completionItem := range completionList.Items {
 		if completionItem.InsertText == word {
 			documentation = completionItem.Documentation.(string)
+			resultRange = completionItem.TextEdit.Range
 			break
 		}
 	}
 
-	response := util.BuildHoverResponse(documentation, lsp.Range{})
-	return &response, nil
+	return protocol.BuildHoverResponse(documentation, resultRange), nil
+}
+
+func removeTrailingColon(word string) string {
+	if len(word) > 2 && string(word[len(word)-1]) == ":" {
+		word = word[0 : len(word)-1]
+	}
+	return word
 }

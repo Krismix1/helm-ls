@@ -2,63 +2,35 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"os"
 
 	"github.com/mrjosh/helm-ls/internal/adapter/yamlls"
+	"github.com/mrjosh/helm-ls/internal/charts"
 	"github.com/mrjosh/helm-ls/internal/util"
-	"github.com/mrjosh/helm-ls/pkg/chartutil"
 	"github.com/sirupsen/logrus"
-	"go.lsp.dev/jsonrpc2"
 	lsp "go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
 )
 
-func (h *langHandler) handleInitialize(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+func (h *langHandler) Initialize(ctx context.Context, params *lsp.InitializeParams) (result *lsp.InitializeResult, err error) {
+	var workspaceURI uri.URI
 
-	var params lsp.InitializeParams
-	if err := json.Unmarshal(req.Params(), &params); err != nil {
-		return err
+	if len(params.WorkspaceFolders) != 0 {
+		workspaceURI, err = uri.Parse(params.WorkspaceFolders[0].URI)
+		if err != nil {
+			logger.Error("Error parsing workspace URI", err)
+			return nil, err
+		}
+	} else {
+		logger.Error("length WorkspaceFolders is 0, falling back to current working directory")
+		workspaceURI = uri.File(".")
 	}
 
-	if len(params.WorkspaceFolders) == 0 {
-		return errors.New("length WorkspaceFolders is 0")
-	}
+	logger.Debug("Initializing chartStore")
+	h.chartStore = charts.NewChartStore(workspaceURI, h.NewChartWithInitActions)
 
-	workspaceURI, err := uri.Parse(params.WorkspaceFolders[0].URI)
-	if err != nil {
-		logger.Error("Error parsing workspace URI", err)
-		return err
-	}
-	h.yamllsConnector.CallInitialize(workspaceURI)
-
-	h.projectFiles = NewProjectFiles(workspaceURI, "")
-
-	vals, err := chartutil.ReadValuesFile(h.projectFiles.ValuesFile)
-	if err != nil {
-		logger.Error("Error loading values.yaml file", err)
-	}
-	h.values = vals
-
-	chartMetadata, err := chartutil.LoadChartfile(h.projectFiles.ChartFile)
-	if err != nil {
-		logger.Error("Error loading Chart.yaml file", err)
-	}
-	h.chartMetadata = *chartMetadata
-	valueNodes, err := chartutil.ReadYamlFileToNode(h.projectFiles.ValuesFile)
-	if err != nil {
-		logger.Error("Error loading values.yaml file", err)
-	}
-	h.valueNode = valueNodes
-
-	chartNode, err := chartutil.ReadYamlFileToNode(h.projectFiles.ChartFile)
-	if err != nil {
-		logger.Error("Error loading Chart.yaml file", err)
-	}
-	h.chartNode = chartNode
-
-	return reply(ctx, lsp.InitializeResult{
+	logger.Debug("Initializing done")
+	return &lsp.InitializeResult{
 		Capabilities: lsp.ServerCapabilities{
 			TextDocumentSync: lsp.TextDocumentSyncOptions{
 				Change:    lsp.TextDocumentSyncKindIncremental,
@@ -73,20 +45,30 @@ func (h *langHandler) handleInitialize(ctx context.Context, reply jsonrpc2.Repli
 			},
 			HoverProvider:      true,
 			DefinitionProvider: true,
+			ReferencesProvider: true,
 		},
-	}, nil)
+	}, nil
 }
 
-func (h *langHandler) initializationWithConfig() {
+func (h *langHandler) Initialized(ctx context.Context, _ *lsp.InitializedParams) (err error) {
+	go h.retrieveWorkspaceConfiguration(ctx)
+	return nil
+}
+
+func (h *langHandler) initializationWithConfig(ctx context.Context) {
 	configureLogLevel(h.helmlsConfig)
-	configureYamlls(h)
+	h.chartStore.SetValuesFilesConfig(h.helmlsConfig.ValuesFilesConfig)
+	configureYamlls(ctx, h)
 }
 
-func configureYamlls(h *langHandler) {
+func configureYamlls(ctx context.Context, h *langHandler) {
 	config := h.helmlsConfig
 	if config.YamllsConfiguration.Enabled {
-		h.yamllsConnector = yamlls.NewConnector(config.YamllsConfiguration, h.connPool, h.documents)
-		h.yamllsConnector.CallInitialize(h.projectFiles.RootURI)
+		h.yamllsConnector = yamlls.NewConnector(ctx, config.YamllsConfiguration, h.client, h.documents)
+		err := h.yamllsConnector.CallInitialize(ctx, h.chartStore.RootURI)
+		if err != nil {
+			logger.Error("Error initializing yamlls", err)
+		}
 		h.yamllsConnector.InitiallySyncOpenDocuments(h.documents.GetAllDocs())
 	}
 }
@@ -100,4 +82,9 @@ func configureLogLevel(helmlsConfig util.HelmlsConfiguration) {
 	if os.Getenv("LOG_LEVEL") == "debug" {
 		logger.SetLevel(logrus.DebugLevel)
 	}
+}
+
+func (h *langHandler) NewChartWithInitActions(rootURI uri.URI, valuesFilesConfig util.ValuesFilesConfig) *charts.Chart {
+	go h.LoadDocsOnNewChart(rootURI)
+	return h.NewChartWithWatchedFiles(rootURI, valuesFilesConfig)
 }

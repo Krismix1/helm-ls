@@ -10,10 +10,13 @@ import (
 )
 
 func (yamllsConnector Connector) InitiallySyncOpenDocuments(docs []*lsplocal.Document) {
-	if yamllsConnector.Conn == nil {
+	if yamllsConnector.server == nil {
 		return
 	}
 	for _, doc := range docs {
+		if !doc.IsOpen {
+			continue
+		}
 		yamllsConnector.DocumentDidOpen(doc.Ast, lsp.DidOpenTextDocumentParams{
 			TextDocument: lsp.TextDocumentItem{
 				URI:  doc.URI,
@@ -24,40 +27,41 @@ func (yamllsConnector Connector) InitiallySyncOpenDocuments(docs []*lsplocal.Doc
 }
 
 func (yamllsConnector Connector) DocumentDidOpen(ast *sitter.Tree, params lsp.DidOpenTextDocumentParams) {
-	logger.Println("YamllsConnector DocumentDidOpen", params.TextDocument.URI)
-	if yamllsConnector.Conn == nil {
+	logger.Debug("YamllsConnector DocumentDidOpen", params.TextDocument.URI)
+	if yamllsConnector.server == nil {
 		return
 	}
-	params.TextDocument.Text = trimTemplateForYamllsFromAst(ast, params.TextDocument.Text)
+	params.TextDocument.Text = lsplocal.TrimTemplate(ast, params.TextDocument.Text)
 
-	err := (*yamllsConnector.Conn).Notify(context.Background(), lsp.MethodTextDocumentDidOpen, params)
+	err := yamllsConnector.server.DidOpen(context.Background(), &params)
 	if err != nil {
 		logger.Error("Error calling yamlls for didOpen", err)
 	}
 }
 
 func (yamllsConnector Connector) DocumentDidSave(doc *lsplocal.Document, params lsp.DidSaveTextDocumentParams) {
-	if yamllsConnector.Conn == nil {
+	if yamllsConnector.server == nil {
 		return
 	}
-	params.Text = trimTemplateForYamllsFromAst(doc.Ast, doc.Content)
+	params.Text = lsplocal.TrimTemplate(doc.Ast, doc.Content)
 
-	err := (*yamllsConnector.Conn).Notify(context.Background(), lsp.MethodTextDocumentDidSave, params)
+	err := yamllsConnector.server.DidSave(context.Background(), &params)
 	if err != nil {
 		logger.Error("Error calling yamlls for didSave", err)
 	}
 
-	yamllsConnector.DocumentDidChangeFullSync(doc, lsp.DidChangeTextDocumentParams{TextDocument: lsp.VersionedTextDocumentIdentifier{
-		TextDocumentIdentifier: params.TextDocument,
-	},
+	yamllsConnector.DocumentDidChangeFullSync(doc, lsp.DidChangeTextDocumentParams{
+		TextDocument: lsp.VersionedTextDocumentIdentifier{
+			TextDocumentIdentifier: params.TextDocument,
+		},
 	})
 }
 
 func (yamllsConnector Connector) DocumentDidChange(doc *lsplocal.Document, params lsp.DidChangeTextDocumentParams) {
-	if yamllsConnector.Conn == nil {
+	if yamllsConnector.server == nil {
 		return
 	}
-	var trimmedText = trimTemplateForYamllsFromAst(doc.Ast, doc.Content)
+	trimmedText := lsplocal.TrimTemplate(doc.Ast, doc.Content)
 
 	logger.Debug("Sending DocumentDidChange previous", params)
 	for i, change := range params.ContentChanges {
@@ -76,19 +80,19 @@ func (yamllsConnector Connector) DocumentDidChange(doc *lsplocal.Document, param
 	}
 
 	logger.Debug("Sending DocumentDidChange", params)
-	err := (*yamllsConnector.Conn).Notify(context.Background(), lsp.MethodTextDocumentDidChange, params)
+	err := yamllsConnector.server.DidChange(context.Background(), &params)
 	if err != nil {
 		logger.Println("Error calling yamlls for didChange", err)
 	}
 }
 
 func (yamllsConnector Connector) DocumentDidChangeFullSync(doc *lsplocal.Document, params lsp.DidChangeTextDocumentParams) {
-	if yamllsConnector.Conn == nil {
+	if yamllsConnector.server == nil {
 		return
 	}
 
-	logger.Println("Sending DocumentDidChange with full sync, current content:", doc.Content)
-	var trimmedText = trimTemplateForYamllsFromAst(doc.Ast.Copy(), doc.Content)
+	logger.Debug("Sending DocumentDidChange with full sync, current content:", doc.Content)
+	trimmedText := lsplocal.TrimTemplate(doc.Ast.Copy(), doc.Content)
 
 	params.ContentChanges = []lsp.TextDocumentContentChangeEvent{
 		{
@@ -97,7 +101,7 @@ func (yamllsConnector Connector) DocumentDidChangeFullSync(doc *lsplocal.Documen
 	}
 
 	logger.Println("Sending DocumentDidChange with full sync", params)
-	err := (*yamllsConnector.Conn).Notify(context.Background(), lsp.MethodTextDocumentDidChange, params)
+	err := yamllsConnector.server.DidChange(context.Background(), &params)
 	if err != nil {
 		logger.Println("Error calling yamlls for didChange", err)
 	}

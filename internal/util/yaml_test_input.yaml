@@ -30,4 +30,14 @@ service:
     nested:
       value: test
 
+list:
+  - first:
+      nested: 1
+  - second:
+      nested: 2
 
+mapping:
+  a: 
+    something: value
+  b: 
+    something: value

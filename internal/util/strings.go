@@ -1,17 +1,12 @@
 package util
 
 import (
-	"net/url"
 	"regexp"
-	"runtime"
 	"strings"
 
-	"github.com/mrjosh/helm-ls/internal/log"
 	"go.lsp.dev/protocol"
-	"go.lsp.dev/uri"
 )
 
-var logger = log.GetLogger()
 var wordRegex = regexp.MustCompile(`[^ \t\n\f\r,;\[\]\"\']+`)
 
 // BetweenStrings gets the substring between two strings.
@@ -44,57 +39,13 @@ func AfterStrings(value string, a string) string {
 	return value[adjustedPos:]
 }
 
-func URIToPath(docuri uri.URI) (string, error) {
-	parsed, err := url.Parse(docuri.Filename())
-	if err != nil {
-		return "", err
-	}
-
-	logger.Printf("Go file uri %s, path: %s", parsed, parsed.Path)
-	if runtime.GOOS == "windows" {
-
-		// In Windows "file:///c:/tmp/foo.md" is parsed to "/c:/tmp/foo.md".
-		// Strip the first character to get a valid path.
-		if strings.Contains(parsed.Path[1:], ":") {
-			// url.Parse() behaves differently with "file:///c:/..." and "file://c:/..."
-			return parsed.Path[1:], nil
-		}
-
-		// if the windows drive is not included in Path it will be in Host
-		return parsed.Host + "/" + parsed.Path[1:], nil
-	}
-
-	return parsed.Path, nil
-}
-
 // WordAt returns the word found at the given character position.
 // Credit https://github.com/aca/neuron-language-server/blob/450a7cff71c14e291ee85ff8a0614fa9d4dd5145/utils.go#L13
 func WordAt(str string, index int) string {
-
 	wordIdxs := wordRegex.FindAllStringIndex(str, -1)
 	for _, wordIdx := range wordIdxs {
 		if wordIdx[0] <= index && index <= wordIdx[1] {
 			return str[wordIdx[0]:wordIdx[1]]
-		}
-	}
-
-	return ""
-}
-
-// ValueAt returns the value found at the given character position.
-// It removes all content of the word after a "." right of the position.
-func ValueAt(str string, index int) string {
-
-	wordIdxs := wordRegex.FindAllStringIndex(str, -1)
-	for _, wordIdx := range wordIdxs {
-		if wordIdx[0] <= index && index+1 <= wordIdx[1] {
-			leftOfWord := str[wordIdx[0] : index+1]
-			rightOfWord := str[index+1 : wordIdx[1]]
-			rightOfWordEnd := strings.Index(rightOfWord, ".")
-			if rightOfWordEnd == -1 {
-				rightOfWordEnd = len(rightOfWord) - 1
-			}
-			return leftOfWord + rightOfWord[0:rightOfWordEnd+1]
 		}
 	}
 
@@ -129,4 +80,11 @@ func IndexToPosition(index int, content []byte) protocol.Position {
 		Line:      uint32(line),
 		Character: uint32(char),
 	}
+}
+
+func RemoveQuotes(s string) string {
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		return s[1 : len(s)-1]
+	}
+	return s
 }

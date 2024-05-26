@@ -2,8 +2,15 @@ package util
 
 type HelmlsConfiguration struct {
 	YamllsConfiguration YamllsConfiguration `json:"yamlls,omitempty"`
+	ValuesFilesConfig   ValuesFilesConfig   `json:"valuesFiles,omitempty"`
 	LogLevel            string              `json:"logLevel,omitempty"`
 	ValuesFiles         []string            `json:"valuesFiles,omitempty"`
+}
+
+type ValuesFilesConfig struct {
+	MainValuesFileName               string `json:"mainValuesFile,omitempty"`
+	LintOverlayValuesFileName        string `json:"lintOverlayValuesFile,omitempty"`
+	AdditionalValuesFilesGlobPattern string `json:"additionalValuesFilesGlobPattern,omitempty"`
 }
 
 type YamllsConfiguration struct {
@@ -19,8 +26,12 @@ type YamllsConfiguration struct {
 }
 
 var DefaultConfig = HelmlsConfiguration{
-	LogLevel:    "info",
-	ValuesFiles: []string{},
+	LogLevel: "info",
+	ValuesFilesConfig: ValuesFilesConfig{
+		MainValuesFileName:               "values.yaml",
+		LintOverlayValuesFileName:        "values.lint.yaml",
+		AdditionalValuesFilesGlobPattern: "values*.yaml",
+	},
 	YamllsConfiguration: YamllsConfiguration{
 		Enabled:                 true,
 		Path:                    "yaml-language-server",
@@ -30,14 +41,24 @@ var DefaultConfig = HelmlsConfiguration{
 	},
 }
 
+type YamllsSchemaStoreSettings struct {
+	Enable bool   `json:"enable"`
+	URL    string `json:"url"`
+}
+
 type YamllsSettings struct {
-	Schemas    map[string]string `json:"schemas"`
-	Completion bool              `json:"completion"`
-	Hover      bool              `json:"hover"`
+	Schemas                   map[string]string         `json:"schemas"`
+	Completion                bool                      `json:"completion"`
+	Hover                     bool                      `json:"hover"`
+	YamllsSchemaStoreSettings YamllsSchemaStoreSettings `json:"schemaStore"`
 }
 
 var DefaultYamllsSettings = YamllsSettings{
-	Schemas:    map[string]string{"kubernetes": "**"},
+	Schemas:    map[string]string{"kubernetes": "templates/**"},
 	Completion: true,
 	Hover:      true,
+	YamllsSchemaStoreSettings: YamllsSchemaStoreSettings{
+		Enable: true,
+		URL:    "https://www.schemastore.org/api/json/catalog.json",
+	},
 }

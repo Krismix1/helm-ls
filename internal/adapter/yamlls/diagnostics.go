@@ -2,34 +2,32 @@ package yamlls
 
 import (
 	"context"
-	"encoding/json"
+	"runtime"
+	"strings"
 
 	lsplocal "github.com/mrjosh/helm-ls/internal/lsp"
 	sitter "github.com/smacker/go-tree-sitter"
-	"go.lsp.dev/jsonrpc2"
+	"go.lsp.dev/protocol"
 	lsp "go.lsp.dev/protocol"
 )
 
-func (yamllsConnector *Connector) handleDiagnostics(req jsonrpc2.Request, clientConn jsonrpc2.Conn, documents *lsplocal.DocumentStore) {
-	var params lsp.PublishDiagnosticsParams
-	if err := json.Unmarshal(req.Params(), &params); err != nil {
-		logger.Println("Error handling diagnostic", err)
-	}
-
-	doc, ok := documents.Get(params.URI)
+func (c Connector) PublishDiagnostics(ctx context.Context, params *protocol.PublishDiagnosticsParams) (err error) {
+	doc, ok := c.documents.Get(params.URI)
 	if !ok {
 		logger.Println("Error handling diagnostic. Could not get document: " + params.URI.Filename())
 	}
 
-	doc.DiagnosticsCache.SetYamlDiagnostics(filterDiagnostics(params.Diagnostics, doc.Ast, doc.Content))
+	doc.DiagnosticsCache.SetYamlDiagnostics(filterDiagnostics(params.Diagnostics, doc.Ast.Copy(), doc.Content))
 	if doc.DiagnosticsCache.ShouldShowDiagnosticsOnNewYamlDiagnostics() {
 		logger.Debug("Publishing yamlls diagnostics")
 		params.Diagnostics = doc.DiagnosticsCache.GetMergedDiagnostics()
-		err := clientConn.Notify(context.Background(), lsp.MethodTextDocumentPublishDiagnostics, &params)
+		err := c.client.PublishDiagnostics(ctx, params)
 		if err != nil {
 			logger.Println("Error calling yamlls for diagnostics", err)
 		}
 	}
+
+	return nil
 }
 
 func filterDiagnostics(diagnostics []lsp.Diagnostic, ast *sitter.Tree, content string) (filtered []lsp.Diagnostic) {
@@ -50,19 +48,36 @@ func filterDiagnostics(diagnostics []lsp.Diagnostic, ast *sitter.Tree, content s
 }
 
 func diagnisticIsRelevant(diagnostic lsp.Diagnostic, node *sitter.Node) bool {
-	logger.Debug("Diagnostic", diagnostic.Message)
+	logger.Debug("Checking if diagnostic is relevant", diagnostic.Message)
 	switch diagnostic.Message {
 	case "Map keys must be unique":
 		return !lsplocal.IsInElseBranch(node)
-	case "All mapping items must start at the same column",
-		"Implicit map keys need to be followed by map values",
-		"Implicit keys need to be on a single line",
-		"A block sequence may not be used as an implicit map key":
-		// TODO: could add a check if is is caused by includes
+	case "All mapping items must start at the same column":
+		// unknown what exactly this is, only causes one error in bitnami/charts
 		return false
-
+	case "Implicit map keys need to be followed by map values", "A block sequence may not be used as an implicit map key", "Implicit keys need to be on a single line":
+		// still breaks with
+		// params:
+		// {{- range $key, $value := .params }}
+		// {{ $key }}:
+		//   {{- range $value }}
+		//   - {{ . | quote }}
+		//   {{- end }}
+		// {{- end }}
+		return false && !lsplocal.IsInElseBranch(node)
+	case "Block scalars with more-indented leading empty lines must use an explicit indentation indicator":
+		// TODO: check if this is a false positive, probably requires parsing the yaml with tree-sitter injections
+		// smtp-password: |
+		//   {{- if not .Values.existingSecret }}
+		//   test: dsa
+		//   {{- end }}
+		return false
 	default:
+		// TODO: remove this once the tree-sitter grammar behavior for windows newlines is the same as for unix
+		if strings.HasPrefix(diagnostic.Message, "Incorrect type. Expected") && runtime.GOOS == "windows" {
+			return false
+		}
+
 		return true
 	}
-
 }

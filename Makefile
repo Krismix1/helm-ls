@@ -3,7 +3,8 @@ export BIN=$(ROOT)/bin
 export GOBIN?=$(BIN)
 export GO=$(shell which go)
 export PACKAGE_NAME=github.com/mrjosh/helm-ls
-export GOLANG_CROSS_VERSION=v1.20.6
+export GOLANG_CROSS_VERSION=v1.21.5
+export CGO_ENABLED=1
 
 $(eval GIT_COMMIT=$(shell git rev-parse --short HEAD))
 $(eval BRANCH_NAME=$(shell git symbolic-ref -q --short HEAD || git describe --tags --exact-match))
@@ -54,8 +55,20 @@ install-metalinter:
 	@$(GO) get -v github.com/golangci/golangci-lint/cmd/golangci-lint@v1.53.2
 	@$(GO) install -v github.com/golangci/golangci-lint/cmd/golangci-lint@v1.53.2
 
+install-yamlls:
+	npm install --global yaml-language-server
+
+integration-test-deps:
+	@YAMLLS_BIN=$$(command -v yaml-language-server) || { echo "yaml-language-server command not found! Installing..." && $(MAKE) install-yamlls; };
+	git submodule init
+	git submodule update --depth 1
+
 test:
-	@$(GO) test ./... -v -race
+	$(MAKE) integration-test-deps
+	@$(GO) test ./... -v -race -tags=integration
+
+coverage:
+	@$(GO) test -coverprofile=.coverage -tags=integration -coverpkg=./internal/... ./internal/... && go tool cover -html=.coverage
 
 .PHONY: build-release
 build-release:
