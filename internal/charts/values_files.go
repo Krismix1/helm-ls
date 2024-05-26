@@ -3,6 +3,7 @@ package charts
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/mrjosh/helm-ls/internal/util"
 	lsp "go.lsp.dev/protocol"
@@ -49,18 +50,21 @@ func getLintOverlayValuesFile(lintOverlayValuesFile string, additionalValuesFile
 func getAdditionalValuesFiles(additionalValuesFilesGlob string, rootURI uri.URI, mainValuesFileName string) []*ValuesFile {
 	additionalValuesFiles := []*ValuesFile{}
 	if additionalValuesFilesGlob != "" {
-
-		matches, err := filepath.Glob(filepath.Join(rootURI.Filename(), additionalValuesFilesGlob))
-		if err != nil {
-			logger.Error("Error loading additional values files with glob pattern", additionalValuesFilesGlob, err)
-		} else {
-			for _, match := range matches {
-				if match == filepath.Join(rootURI.Filename(), mainValuesFileName) {
-					continue
+		globPatterns := strings.Split(additionalValuesFilesGlob, ",")
+		for _, pattern := range globPatterns {
+			matches, err := filepath.Glob(filepath.Join(rootURI.Filename(), pattern))
+			if err != nil {
+				logger.Error("Error loading additional values files with glob pattern", pattern, err)
+			} else {
+				for _, match := range matches {
+					if match == filepath.Join(rootURI.Filename(), mainValuesFileName) {
+						continue
+					}
+					additionalValuesFiles = append(additionalValuesFiles, NewValuesFile(match))
 				}
-				additionalValuesFiles = append(additionalValuesFiles, NewValuesFile(match))
 			}
 		}
+
 	}
 	return additionalValuesFiles
 }
